@@ -8,8 +8,8 @@ VLLM_API_URL = "http://localhost:8000/v1/chat/completions"
 MAX_TOKENS = 250  # Increased for more detailed analysis
 TEMPERATURE = 0.7
 
-# Supported UI languages
-CONFIG_LANGUAGES = ["한국어", "English", "日本語", "中文", "Deutsch"]
+# Supported UI languages (Korean and English only)
+CONFIG_LANGUAGES = ["한국어", "English"]
 
 # Number of references to review from each source
 NUM_REFERENCES = 15

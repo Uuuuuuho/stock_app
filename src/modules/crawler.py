@@ -4,6 +4,8 @@ import time
 import random
 import json
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import streamlit as st
 from config import NUM_REFERENCES
 
 # Try to import feedparser, fallback if not available
@@ -23,12 +25,12 @@ def get_user_agents():
         'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     ]
 
-def safe_request(url, headers, timeout=10, retries=2):
-    """Make a safe HTTP request with retries and random delays"""
+def safe_request(url, headers, timeout=5, retries=1):
+    """Make a safe HTTP request with retries and minimal delays"""
     for attempt in range(retries):
         try:
-            # Random delay to avoid being blocked
-            time.sleep(random.uniform(0.5, 2.0))
+            # Reduced delay for faster processing
+            time.sleep(random.uniform(0.1, 0.5))
             response = requests.get(url, headers=headers, timeout=timeout)
             if response.status_code == 200:
                 return response
@@ -37,6 +39,7 @@ def safe_request(url, headers, timeout=10, retries=2):
                 raise e
     return None
 
+@st.cache_data(ttl=1800)  # Cache for 30 minutes
 def crawl_google_finance(ticker):
     """Crawl Google Finance for stock information"""
     articles, links, debug = [], [], []
@@ -77,6 +80,7 @@ def crawl_google_finance(ticker):
     
     return articles, links, debug
 
+@st.cache_data(ttl=1800)  # Cache for 30 minutes
 def crawl_yahoo_finance(ticker):
     """Crawl Yahoo Finance for stock information"""
     articles, links, debug = [], [], []
@@ -111,6 +115,7 @@ def crawl_yahoo_finance(ticker):
     
     return articles, links, debug
 
+@st.cache_data(ttl=1800)  # Cache for 30 minutes
 def crawl_marketwatch(ticker):
     """Crawl MarketWatch for stock information"""
     articles, links, debug = [], [], []
@@ -243,55 +248,134 @@ def generate_fallback_content(ticker):
     
     return articles, links, debug
 
-def crawl_info(ticker, date):
-    """Enhanced crawl function that tries multiple sources and provides fallback content"""
+def extract_content_from_url(url, max_chars=1000):
+    """Extract meaningful content from a given URL"""
+    try:
+        headers = {'User-Agent': random.choice(get_user_agents())}
+        response = safe_request(url, headers, timeout=10)
+        
+        if response and response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Remove script and style elements
+            for script in soup(["script", "style", "nav", "header", "footer"]):
+                script.decompose()
+            
+            # Try to find main content areas
+            content_selectors = [
+                'article', 'main', '.content', '.article-body', 
+                '.post-content', '.entry-content', 'p'
+            ]
+            
+            content_text = ""
+            for selector in content_selectors:
+                elements = soup.select(selector)
+                if elements:
+                    content_text = ' '.join([elem.get_text().strip() for elem in elements[:3]])
+                    break
+            
+            if not content_text:
+                content_text = soup.get_text()
+            
+            # Clean and limit content
+            content_text = ' '.join(content_text.split())  # Remove extra whitespace
+            return content_text[:max_chars] + "..." if len(content_text) > max_chars else content_text
+            
+    except Exception as e:
+        return f"Error extracting content: {str(e)}"
+    
+    return ""
+
+def analyze_link_relevance(url, ticker):
+    """Analyze how relevant a link is to the given ticker"""
+    try:
+        # Simple relevance scoring based on URL and domain
+        relevance_score = 0
+        url_lower = url.lower()
+        ticker_lower = ticker.lower()
+        
+        # High relevance domains
+        high_relevance_domains = [
+            'finance.yahoo.com', 'marketwatch.com', 'bloomberg.com',
+            'reuters.com', 'cnbc.com', 'fool.com', 'seekingalpha.com'
+        ]
+        
+        for domain in high_relevance_domains:
+            if domain in url_lower:
+                relevance_score += 10
+                break
+        
+        # Ticker mention in URL
+        if ticker_lower in url_lower:
+            relevance_score += 15
+        
+        # Financial keywords in URL
+        financial_keywords = ['stock', 'earnings', 'revenue', 'analysis', 'news', 'investment']
+        for keyword in financial_keywords:
+            if keyword in url_lower:
+                relevance_score += 2
+        
+        return relevance_score
+    except:
+        return 0
+
+def crawl_info_parallel(ticker, date, enabled_sources=None):
+    """Enhanced parallel crawl function for faster processing"""
+    if enabled_sources is None:
+        enabled_sources = ['google']  # Default to fastest source only
+    
     all_articles, reference_links, debug_info = [], [], []
     
-    print(f"🚀 Starting comprehensive crawl for {ticker}")
-    print(f"📅 Target date: {date}")
-    
-    debug_info.append(f"🚀 Starting comprehensive crawl for {ticker}")
+    debug_info.append(f"🚀 Starting parallel crawl for {ticker}")
     debug_info.append(f"📅 Target date: {date}")
+    debug_info.append(f"� Enabled sources: {enabled_sources}")
     
-    # Try multiple sources
-    sources = [
-        ("Google Finance", crawl_google_finance),
-        ("Yahoo Finance", crawl_yahoo_finance),
-        ("MarketWatch", crawl_marketwatch),
-        ("RSS Feeds", crawl_rss_feeds),
-        ("Alternative Search", crawl_alternative_search)
+    # Define all available sources
+    available_sources = {
+        "google": ("Google Finance", crawl_google_finance),
+        "yahoo": ("Yahoo Finance", crawl_yahoo_finance),
+        "marketwatch": ("MarketWatch", crawl_marketwatch),
+        "rss": ("RSS Feeds", crawl_rss_feeds),
+        "alternative": ("Alternative Search", crawl_alternative_search)
+    }
+    
+    # Filter sources based on enabled list
+    sources_to_run = [
+        (name, func) for key, (name, func) in available_sources.items() 
+        if key in enabled_sources
     ]
     
-    for source_name, crawl_func in sources:
-        try:
-            print(f"🔍 Crawling {source_name}...")
-            debug_info.append(f"🔍 Crawling {source_name}...")
-            
-            articles, links, debug = crawl_func(ticker)
-            
-            print(f"📊 {source_name} results: {len(articles)} articles, {len(links)} links")
-            debug_info.append(f"📊 {source_name} results: {len(articles)} articles, {len(links)} links")
-            
-            all_articles.extend(articles)
-            reference_links.extend(links)
-            debug_info.extend(debug)
-            
-            # Add delay between sources
-            time.sleep(random.uniform(1, 3))
-            
-        except Exception as e:
-            error_msg = f"❌ {source_name} failed: {e}"
-            print(error_msg)
-            debug_info.append(error_msg)
-            import traceback
-            print(f"📋 Traceback: {traceback.format_exc()}")
+    if not sources_to_run:
+        sources_to_run = [("Google Finance", crawl_google_finance)]  # Fallback
     
-    print(f"📈 Total articles before fallback: {len(all_articles)}")
+    # Use ThreadPoolExecutor for parallel processing
+    with ThreadPoolExecutor(max_workers=min(len(sources_to_run), 3)) as executor:
+        # Submit all tasks
+        future_to_source = {
+            executor.submit(crawl_func, ticker): source_name 
+            for source_name, crawl_func in sources_to_run
+        }
+        
+        # Collect results as they complete
+        for future in as_completed(future_to_source):
+            source_name = future_to_source[future]
+            try:
+                articles, links, debug = future.result(timeout=10)  # 10 second timeout per source
+                
+                debug_info.append(f"📊 {source_name} results: {len(articles)} articles, {len(links)} links")
+                
+                all_articles.extend(articles)
+                reference_links.extend(links)
+                debug_info.extend(debug)
+                
+            except Exception as e:
+                error_msg = f"❌ {source_name} failed: {e}"
+                debug_info.append(error_msg)
+    
     debug_info.append(f"📈 Total articles before fallback: {len(all_articles)}")
     
     # If we don't have enough content, add fallback
     if len(all_articles) < 3:
-        print("⚠️ Limited content found, adding fallback analysis")
         debug_info.append("⚠️ Limited content found, adding fallback analysis")
         fallback_articles, fallback_links, fallback_debug = generate_fallback_content(ticker)
         all_articles.extend(fallback_articles)
@@ -300,7 +384,6 @@ def crawl_info(ticker, date):
     
     # Ensure we have at least some content
     if not all_articles:
-        print("🔄 Using minimal fallback content")
         all_articles = [f"[FALLBACK] Analysis needed for {ticker} stock performance and market position"]
         reference_links = ["#no-data-available"]
         debug_info.append("🔄 Using minimal fallback content")
@@ -310,7 +393,6 @@ def crawl_info(ticker, date):
     reference_links = reference_links[:NUM_REFERENCES]
     
     final_msg = f"✅ Final results: {len(all_articles)} articles, {len(reference_links)} links"
-    print(final_msg)
     debug_info.append(final_msg)
     
     return all_articles, reference_links, debug_info

@@ -23,7 +23,7 @@ nvidia-smi
 
 # 모델 다운로드 및 서버 시작
 echo "🚀 vLLM 서버 시작..."
-echo "모델: meta-llama/Llama-3.1-8B-Instruct"
+echo "모델: TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 echo "포트: 8000"
 echo "종료하려면 Ctrl+C를 누르세요."
 
@@ -32,4 +32,5 @@ python3 -m vllm.entrypoints.openai.api_server \
   --dtype float16 \
   --gpu-memory-utilization 0.8 \
   --max-num-seqs 1 \
-  --max-num-batched-tokens 512
+  --max-num-batched-tokens 512 \
+  --max-model-len 2048
