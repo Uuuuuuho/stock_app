@@ -35,12 +35,13 @@ def extract_content_from_url(url, max_chars=1000):
             
             # Clean and limit content
             content_text = ' '.join(content_text.split())  # Remove extra whitespace
-            return content_text[:max_chars] + "..." if len(content_text) > max_chars else content_text
+            result_text = content_text[:max_chars] + "..." if len(content_text) > max_chars else content_text
+            return result_text, None
             
     except Exception as e:
-        return f"Error extracting content: {str(e)}"
+        return f"Error extracting content: {str(e)}", None
     
-    return ""
+    return "", None
 
 def analyze_link_relevance(url, ticker):
     """Analyze how relevant a link is to the given ticker"""

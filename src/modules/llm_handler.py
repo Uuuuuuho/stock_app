@@ -45,7 +45,56 @@ def test_vllm_simple():
     except Exception as e:
         return False, f"테스트 중 오류: {str(e)}"
 
-def run_llm(ticker, date, return_pct, articles, language="한국어"):
+def run_llm_generic(prompt, language="한국어"):
+    """Generic LLM request for any prompt."""
+    payload = {
+        "model": MODEL_NAME,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": MAX_TOKENS,
+        "temperature": TEMPERATURE
+    }
+    
+    try:
+        print(f"🔄 vLLM 범용 요청 시작 - Language: {language}")
+        print(f"🌐 API URL: {VLLM_API_URL}")
+        print(f"🤖 Model: {MODEL_NAME}")
+        
+        res = requests.post(VLLM_API_URL, json=payload, headers={"Content-Type":"application/json"}, timeout=30)
+        print(f"📡 vLLM Response Status: {res.status_code}")
+        
+        if res.status_code == 200:
+            data = res.json()
+            print(f"✅ vLLM Response received successfully")
+            response_content = data['choices'][0]['message']['content'].strip()
+            print(f"📝 Response length: {len(response_content)} characters")
+            return response_content, None
+        else:
+            # Handle model not found error
+            if res.status_code == 404 and 'does not exist' in res.text:
+                error_msg = (
+                    "❌ vLLM 모델을 찾을 수 없습니다. config.py의 MODEL_NAME을 올바른 모델명으로 설정해주세요."
+                )
+            else:
+                error_msg = f"vLLM API Error: {res.status_code} - {res.text}"
+            print(f"❌ {error_msg}")
+            return error_msg, None
+            
+    except Exception as e:
+        error_msg = f"vLLM API Request Failed: {str(e)}"
+        print(f"❌ {error_msg}")
+        return error_msg, None
+
+def run_llm(user_prompt, content, task_name, language="한국어"):
+    """Simple LLM request for content processing."""
+    # Create a simple prompt combining user request and content
+    if language == "한국어":
+        prompt = f"{user_prompt}\n\n내용:\n{content}"
+    else:
+        prompt = f"{user_prompt}\n\nContent:\n{content}"
+    
+    return run_llm_generic(prompt, language)
+
+def run_llm_stock_analysis(ticker, date, return_pct, articles, language="한국어"):
     """Request analysis from vLLM API with enhanced content handling."""
     
     # Check if we have real articles or fallback content
@@ -91,57 +140,7 @@ Please respond only in English.
     # Get appropriate prompt for selected language
     prompt = language_prompts.get(language, language_prompts["한국어"])
     
-    payload = {
-        "model": MODEL_NAME,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": MAX_TOKENS,
-        "temperature": TEMPERATURE
-    }
-    
-    try:
-        print(f"🔄 vLLM 요청 시작 - Ticker: {ticker}, Language: {language}")
-        print(f"📊 Articles count: {len(articles)}, Has fallback: {has_fallback}")
-        print(f"🌐 API URL: {VLLM_API_URL}")
-        print(f"🤖 Model: {MODEL_NAME}")
-        
-        res = requests.post(VLLM_API_URL, json=payload, headers={"Content-Type":"application/json"}, timeout=30)
-        print(f"📡 vLLM Response Status: {res.status_code}")
-        
-        if res.status_code == 200:
-            data = res.json()
-            print(f"✅ vLLM Response received successfully")
-            summary = data['choices'][0]['message']['content'].strip()
-            print(f"📝 Summary length: {len(summary)} characters")
-            
-            # Add disclaimer if using fallback content
-            if has_fallback or has_limited_data:
-                disclaimer_map = {
-                    "한국어": "\n\n※ 제한된 뉴스 데이터로 인한 일반적 분석입니다.",
-                    "English": "\n\n※ General analysis due to limited news data."
-                }
-                disclaimer = disclaimer_map.get(language, disclaimer_map["한국어"])
-                summary += disclaimer
-                print(f"⚠️ Added disclaimer for limited data")
-            
-            return summary, prompt
-        else:
-            error_msg = f"LLM Error {res.status_code}: {res.text}"
-            print(f"❌ {error_msg}")
-            return error_msg, prompt
-    except Exception as e:
-        error_msg = f"LLM request failed: {e}"
-        print(f"💥 {error_msg}")
-        import traceback
-        print(f"📋 Traceback: {traceback.format_exc()}")
-        return error_msg, prompt
-    
-    # Return language-appropriate fallback
-    fallback_map = {
-        "한국어": "분석 정보가 제한적입니다. 투자 전 추가 리서치를 권합니다.",
-        "English": "Limited analysis information available. Additional research recommended before investment."
-    }
-    fallback = fallback_map.get(language, fallback_map["한국어"])
-    return fallback, prompt
+    return run_llm_generic(prompt, language)
 
 def run_llm_with_enhanced_content(ticker, date, return_pct, articles, links, language="한국어"):
     """Enhanced LLM analysis with content from relevant links"""
@@ -198,31 +197,33 @@ Collected Information:
 Please analyze why investors should buy this stock from an investment perspective in English within 4-5 lines.
 Include specific market trends, company performance, growth prospects, and investment attractiveness.
 Please respond only in English.
-""",
-        "日本語": f"""
-{date}に{ticker}に投資していたら、今日までの収益率は{return_pct:.2f}%です。
-
-収集された情報：
-{articles_text}
-
-{"⚠️ 注意：限られたニュース情報のため、一般的な投資分析を含みます。" if has_fallback or has_limited_data else ""}
-{"✨ 強化：関連リンクから詳細情報を抽出しました。" if has_enhanced_content else ""}
-
-投資家の観点からこの銘柄を購入すべき理由を日本語で4-5行で分析してください。
-具体的な市場動向、企業業績、成長見通し、投資魅力を含めて説明してください。
-必ず日本語のみで回答してください。
 """
     }
     
     # Get appropriate prompt for selected language
     prompt = language_prompts.get(language, language_prompts["한국어"])
     
-    payload = {
-        "model": MODEL_NAME,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": MAX_TOKENS + 50,  # Slightly more tokens for enhanced content
-        "temperature": TEMPERATURE
-    }
+    result, _ = run_llm_generic(prompt, language)
+    
+    # Add enhancement disclaimer
+    if has_enhanced_content:
+        enhancement_disclaimer_map = {
+            "한국어": "\n\n✨ 상세 링크 분석을 통한 강화된 투자 분석입니다.",
+            "English": "\n\n✨ Enhanced investment analysis through detailed link extraction.",
+        }
+        enhancement_disclaimer = enhancement_disclaimer_map.get(language, enhancement_disclaimer_map["한국어"])
+        result += enhancement_disclaimer
+    
+    # Add disclaimer if using fallback content
+    if has_fallback or has_limited_data:
+        disclaimer_map = {
+            "한국어": "\n\n※ 제한된 뉴스 데이터로 인한 일반적 분석을 포함합니다.",
+            "English": "\n\n※ General analysis due to limited news data included.",
+        }
+        disclaimer = disclaimer_map.get(language, disclaimer_map["한국어"])
+        result += disclaimer
+    
+    return result, prompt, extraction_debug
     
     try:
         print(f"🔄 Enhanced vLLM 요청 시작 - Ticker: {ticker}, Language: {language}")
@@ -243,7 +244,6 @@ Please respond only in English.
                 enhancement_disclaimer_map = {
                     "한국어": "\n\n✨ 상세 링크 분석을 통한 강화된 투자 분석입니다.",
                     "English": "\n\n✨ Enhanced investment analysis through detailed link extraction.",
-                    "日本語": "\n\n✨ 詳細リンク分析による強化された投資分析です。"
                 }
                 enhancement_disclaimer = enhancement_disclaimer_map.get(language, enhancement_disclaimer_map["한국어"])
                 summary += enhancement_disclaimer
@@ -253,7 +253,6 @@ Please respond only in English.
                 disclaimer_map = {
                     "한국어": "\n\n※ 제한된 뉴스 데이터로 인한 일반적 분석을 포함합니다.",
                     "English": "\n\n※ General analysis due to limited news data included.",
-                    "日본語": "\n\n※ 限られたニュースデータによる一般的な分析を含みます。"
                 }
                 disclaimer = disclaimer_map.get(language, disclaimer_map["한국어"])
                 summary += disclaimer

@@ -5,7 +5,8 @@ from datetime import datetime
 from modules.data_handler import get_stock_data
 from modules.ui_components import (
     header_ui, sidebar_ui, display_metrics,
-    display_table_and_chart, display_risk_info, display_ai_analysis
+    display_table_and_chart, display_risk_info, display_ai_analysis,
+    display_crawling_test_ui
 )
 
 # Main application
@@ -27,26 +28,37 @@ def build_app():
     # Sidebar returns start_date, end_date, target_return, top_n, language
     start_date, end_date, target_return, top_n, language = sidebar_ui(default_start, default_end)
 
-    if st.session_state.get('analyze', False):
-        # 데이터 분석
-        with st.spinner('📊 S&P500 종목 데이터 분석 중...'):
-            stock_data = get_stock_data(start_date, end_date, target_return, top_n)
+    # 탭 생성
+    tab1, tab2 = st.tabs(["🤖 AI 분석", "🔍 크롤링 테스트"])
 
-        if not stock_data:
-            st.error("⚠️ 조건을 만족하는 종목이 없습니다. 목표 수익률를 낮춰보세요.")
-            return
+    with tab1:
+        if st.session_state.get('analyze', False):
+            # 데이터 분석
+            with st.spinner('📊 S&P500 종목 데이터 분석 중...'):
+                stock_data = get_stock_data(start_date, end_date, target_return, top_n)
 
-        # 메트릭 및 차트 표시
-        display_metrics(pd.DataFrame(stock_data))
-        st.markdown("---")
-        display_table_and_chart(stock_data, start_date, end_date)
-        display_risk_info()
+            if not stock_data:
+                st.error("⚠️ 조건을 만족하는 종목이 없습니다. 목표 수익률를 낮춰보세요.")
+                return
 
-        # AI 분석 (language 인자 추가)
-        display_ai_analysis(stock_data, start_date, language)
+            # 메트릭 및 차트 표시
+            display_metrics(pd.DataFrame(stock_data))
+            st.markdown("---")
+            display_table_and_chart(stock_data, start_date, end_date)
+            display_risk_info()
 
-        # 분석 상태 초기화
-        st.session_state.analyze = False
+            # AI 분석 (language 인자 추가)
+            display_ai_analysis(stock_data, start_date, language)
+
+            # 분석 상태 초기화
+            st.session_state.analyze = False
+        else:
+            st.info("👈 사이드바에서 조건을 설정하고 '분석 시작' 버튼을 클릭하세요.")
+
+
+    with tab2:
+        display_crawling_test_ui(start_date, language)
+
 
 if __name__ == '__main__':
     build_app()

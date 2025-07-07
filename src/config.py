@@ -1,7 +1,7 @@
 # Configuration for stock research app
 
 # vLLM model and API
-MODEL_NAME = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+MODEL_NAME = "google/gemma-2b-it"
 VLLM_API_URL = "http://localhost:8000/v1/chat/completions"
 
 # LLM parameters

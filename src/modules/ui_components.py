@@ -4,8 +4,9 @@ import yfinance as yf
 import plotly.graph_objects as go
 
 from modules.crawler import crawl_info_parallel
-from modules.llm_handler import run_llm, run_llm_with_enhanced_content, check_vllm_server, test_vllm_simple
+from modules.llm_handler import run_llm, run_llm_stock_analysis, run_llm_with_enhanced_content, check_vllm_server, test_vllm_simple
 from modules.stock_analyzer import analyze_stock_characteristics, summarize_crawling_process, explain_llm_processing_logic
+from modules.content_extractor import extract_content_from_url # 추가
 from config import NUM_REFERENCES, CONFIG_LANGUAGES
 
 # UI Components
@@ -162,7 +163,8 @@ def display_ai_analysis(stock_data, start_date, language):
             st.write(f"• {qa}")
     
     # 디버깅 정보 표시
-    debug_container = st.container()
+    with st.expander("📈 실시간 분석 로그", expanded=False):
+        debug_container = st.container()
     
     progress = st.progress(0)
     status = st.empty()
@@ -324,48 +326,78 @@ def display_ai_analysis(stock_data, start_date, language):
                         
                         st.info("💡 상위 관련성 링크에서 추가 콘텐츠를 추출하여 더 상세한 투자 분석을 제공했습니다.")
     
-    # 크롤링 기능 테스트
+def display_crawling_test_ui(start_date, language):
+    """UI for crawling test tab."""
     st.subheader("🔍 크롤링 기능 테스트")
-    with st.expander("크롤링 테스트 실행", expanded=False):
-        if st.button("크롤링 테스트 시작"):
-            test_ticker = "AAPL"
-            st.write(f"🧪 {test_ticker}로 크롤링 테스트 중...")
-            
+    
+    # 종목 티커 기반 테스트
+    st.write("**종목 티커 기반 크롤링 테스트:**")
+    if st.button("AAPL 티커로 테스트"):
+        st.session_state.run_ticker_test = True
+        st.session_state.ticker_test_results = None
+
+    if st.session_state.get('run_ticker_test'):
+        with st.spinner("AAPL 크롤링 중..."):
             try:
-                test_articles, test_links, test_debug = crawl_info_parallel(test_ticker, start_date)
-                
-                st.success(f"✅ 크롤링 테스트 완료!")
-                st.write(f"수집된 기사: {len(test_articles)}개")
-                st.write(f"참고 링크: {len(test_links)}개")
-                st.write(f"디버그 정보: {len(test_debug)}개")
-                
-                if test_articles:
-                    st.write("첫 번째 기사 샘플:")
-                    st.text(test_articles[0][:200])
-                
-                st.write("디버그 정보:")
-                for debug_item in test_debug[:5]:
-                    st.text(debug_item)
-                    
+                articles, links, debug = crawl_info_parallel("AAPL", start_date)
+                st.session_state.ticker_test_results = {"success": True, "articles": articles, "links": links, "debug": debug}
             except Exception as e:
-                st.error(f"❌ 크롤링 테스트 실패: {str(e)}")
                 import traceback
-                st.text(traceback.format_exc())
+                st.session_state.ticker_test_results = {"success": False, "error": str(e), "traceback": traceback.format_exc()}
+        st.session_state.run_ticker_test = False
+        st.rerun()
 
-            # 분석 결과 상세 디버깅 정보 표시
-            with debug_container:
-                if recommendation and "Error" not in recommendation:
-                    st.success(f"🎯 {ticker} 전체 분석 성공!")
-                else:
-                    st.error(f"🚨 {ticker} 분석에 문제가 있습니다")
+    if st.session_state.get('ticker_test_results'):
+        res = st.session_state.ticker_test_results
+        if res["success"]:
+            st.success("✅ AAPL 크롤링 테스트 완료!")
+            st.write(f"수집된 기사: {len(res['articles'])}개, 링크: {len(res['links'])}개")
+            with st.expander("상세 결과 보기"):
+                st.json(res)
+        else:
+            st.error(f"❌ AAPL 크롤링 테스트 실패: {res['error']}")
+
+    st.markdown("---")
+    
+    # URL 기반 콘텐츠 요약 테스트
+    st.write("**URL 기반 콘텐츠 요약 테스트:**")
+    test_url = st.text_input("테스트할 기사 URL을 입력하세요:", key="test_url")
+    
+    if st.button("URL 콘텐츠 요약 실행"):
+        st.session_state.run_url_summary_test = True
+        st.session_state.url_summary_results = None
+
+    if st.session_state.get('run_url_summary_test') and test_url:
+        with st.spinner("URL 콘텐츠 추출 및 요약 중..."):
+            try:
+                # 1. 콘텐츠 추출
+                content, _ = extract_content_from_url(test_url)
                 
-                # 분석 통계
-                st.write("📊 분석 통계:")
-                st.write(f"   • 크롤링된 기사: {len(articles)}개")
-                st.write(f"   • 참고 링크: {len(links)}개")
-                st.write(f"   • LLM 응답 길이: {len(recommendation) if recommendation else 0}자")
-                st.write(f"   • 데이터 품질: {crawling_summary.get('data_quality', '알 수 없음')}")
+                # 2. LLM으로 요약
+                if content:
+                    summary, _ = run_llm("다음 내용을 한국어로 요약해줘.", content, "URL 요약", language)
+                    st.session_state.url_summary_results = {"success": True, "content": content, "summary": summary}
+                else:
+                    st.session_state.url_summary_results = {"success": False, "error": "콘텐츠를 추출할 수 없습니다."}
 
+            except Exception as e:
+                import traceback
+                st.session_state.url_summary_results = {"success": False, "error": str(e), "traceback": traceback.format_exc()}
+        st.session_state.run_url_summary_test = False
+        st.rerun()
+
+    if st.session_state.get('url_summary_results'):
+        res = st.session_state.url_summary_results
+        if res["success"]:
+            st.success("✅ URL 요약 테스트 완료!")
+            st.write("**요약:**")
+            st.write(res['summary'])
+            with st.expander("추출된 원문 보기"):
+                st.text(res['content'])
+        else:
+            st.error(f"❌ URL 요약 테스트 실패: {res['error']}")
+            if "traceback" in res:
+                st.text(res['traceback'])
 
 def generate_collected_info_summary(reasons, language, vllm_status):
     """Generate a summary of collected information in the selected language."""
