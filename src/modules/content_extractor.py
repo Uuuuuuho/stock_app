@@ -100,7 +100,7 @@ def get_enhanced_content_for_ticker(ticker, links, max_links=5):
     for i, (score, link) in enumerate(scored_links[:max_links]):
         try:
             debug_info.append(f"🔗 Extracting content from link {i+1} (score: {score})")
-            content = extract_content_from_url(link)
+            content, _ = extract_content_from_url(link)
             
             if content and len(content.strip()) > 50:
                 enhanced_content.append({
@@ -114,7 +114,7 @@ def get_enhanced_content_for_ticker(ticker, links, max_links=5):
             
             # Add delay to be respectful
             time.sleep(random.uniform(1, 2))
-            
+        
         except Exception as e:
             debug_info.append(f"❌ Error extracting from {link}: {str(e)}")
     
