@@ -69,7 +69,7 @@ def display_table_and_chart(stock_data, start_date, end_date):
         st.subheader("📈 포트폴리오 주가 차트")
         
         # Chart period selection
-        chart_period = st.selectbox("차트 주기 선택", ["일봉","주봉","월봉"], index=0)
+        chart_period = st.selectbox("차트 주기 선택", ["일봉","주봉","월봉"], index=0, key="chart_period")
         
         # Moving Average trend line options
         st.write("**이동평균선 설정:**")
@@ -91,16 +91,26 @@ def display_table_and_chart(stock_data, start_date, end_date):
         
         for i, item in enumerate(stock_data):
             with cols[i % 3]:
-                if st.checkbox(item['Ticker'], value=True, key=f"stock_select_{item['Ticker']}"):
+                if st.checkbox(
+                    item['Ticker'], 
+                    value=True, 
+                    key=f"stock_select_{item['Ticker']}"
+                ):
                     selected_stocks.append(item)
         
         if not selected_stocks:
             st.warning("⚠️ 적어도 하나의 종목을 선택해주세요.")
             return
             
+        # Color palette for better visual separation
+        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+            
         with st.spinner('📈 포트폴리오 성과 계산 중...'):
             fig = go.Figure()
-            for item in selected_stocks:
+            
+            # Process each selected stock with unique colors
+            for idx, item in enumerate(selected_stocks):
+                base_color = colors[idx % len(colors)]
                 data = yf.Ticker(item['Ticker']).history(start=str(start_date), end=str(end_date))
                 
                 # Check if data is available
@@ -133,35 +143,50 @@ def display_table_and_chart(stock_data, start_date, end_date):
                     st.warning(f"⚠️ {item['Ticker']} {chart_period} 데이터가 충분하지 않습니다.")
                     continue
                 
-                # Use Candlestick chart (OHLC bars)
+                # Use Candlestick chart with custom colors
                 fig.add_trace(go.Candlestick(
                     x=data.index,
                     open=data['Open'],
                     high=data['High'],
                     low=data['Low'],
                     close=data['Close'],
-                    name=item['Ticker']
+                    name=f"{item['Ticker']} 캔들",
+                    increasing_line_color=base_color,
+                    decreasing_line_color=base_color,
+                    increasing_fillcolor=base_color,
+                    decreasing_fillcolor=base_color,
+                    opacity=0.8
                 ))
                 
-                # Add Moving Average trend lines based on user selection
-                ma_periods = [5, 20, 60, 120]
-                ma_colors = ['orange', 'blue', 'green', 'red']
-                ma_styles = ['solid', 'solid', 'dash', 'dot']
-                ma_names = ['MA5 (단기)', 'MA20 (중기)', 'MA60 (장기)', 'MA120 (초장기)']
+                # Add Moving Average trend lines with coordinated colors
+                ma_config = {
+                    5: {'color': f"rgba({int(base_color[1:3], 16)}, {int(base_color[3:5], 16)}, {int(base_color[5:7], 16)}, 0.9)", 'style': 'solid', 'width': 1.5},
+                    20: {'color': f"rgba({int(base_color[1:3], 16)}, {int(base_color[3:5], 16)}, {int(base_color[5:7], 16)}, 0.7)", 'style': 'dash', 'width': 2},
+                    60: {'color': f"rgba({int(base_color[1:3], 16)}, {int(base_color[3:5], 16)}, {int(base_color[5:7], 16)}, 0.5)", 'style': 'dot', 'width': 2.5},
+                    120: {'color': f"rgba({int(base_color[1:3], 16)}, {int(base_color[3:5], 16)}, {int(base_color[5:7], 16)}, 0.3)", 'style': 'dashdot', 'width': 3}
+                }
                 
-                for period, color, style, ma_name in zip(ma_periods, ma_colors, ma_styles, ma_names):
-                    if show_ma.get(period, False) and len(data) >= period:  # Only add MA if selected and enough data
+                ma_names = {5: 'MA5', 20: 'MA20', 60: 'MA60', 120: 'MA120'}
+                
+                for period in [5, 20, 60, 120]:
+                    if show_ma.get(period, False) and len(data) >= period:
                         ma_values = data['Close'].rolling(window=period).mean()
+                        config = ma_config[period]
+                        
                         fig.add_trace(go.Scatter(
                             x=data.index,
                             y=ma_values,
                             mode='lines',
-                            name=f'{item["Ticker"]} {ma_name}',
-                            line=dict(color=color, width=2, dash=style),
-                            opacity=0.9,
-                            hovertemplate=f'<b>{item["Ticker"]} {ma_name}</b><br>' +
+                            name=f'{item["Ticker"]} {ma_names[period]}',
+                            line=dict(
+                                color=config['color'], 
+                                width=config['width'], 
+                                dash=config['style']
+                            ),
+                            opacity=0.8,
+                            hovertemplate=f'<b>{item["Ticker"]} {ma_names[period]}</b><br>' +
                                         'Date: %{x}<br>' +
-                                        f'{ma_name}: $%{{y:.2f}}<br>' +
+                                        f'{ma_names[period]}: $%{{y:.2f}}<br>' +
                                         '<extra></extra>'
                         ))
             fig.update_layout(
@@ -169,11 +194,21 @@ def display_table_and_chart(stock_data, start_date, end_date):
                 xaxis_title="날짜", 
                 yaxis_title="주가 ($)", 
                 hovermode='x unified', 
-                height=700, 
+                height=800,  # Increased height for better visibility
                 showlegend=True, 
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                legend=dict(
+                    orientation="v", 
+                    yanchor="top", 
+                    y=1, 
+                    xanchor="left", 
+                    x=1.01,
+                    bgcolor="rgba(255,255,255,0.8)",
+                    bordercolor="rgba(0,0,0,0.2)",
+                    borderwidth=1
+                ),
+                margin=dict(r=200),  # Add right margin for legend
                 xaxis=dict(
-                    rangeslider=dict(visible=True),
+                    rangeslider=dict(visible=True, thickness=0.05),
                     rangeselector=dict(
                         buttons=list([
                             dict(count=7, label="7D", step="day", stepmode="backward"),
@@ -184,7 +219,9 @@ def display_table_and_chart(stock_data, start_date, end_date):
                         ])
                     )
                 ),
-                dragmode='zoom'  # Enable zoom functionality
+                dragmode='zoom',  # Enable zoom functionality
+                plot_bgcolor='rgba(240,240,240,0.3)',  # Light background
+                paper_bgcolor='white'
             )
             
             # Add custom controls description

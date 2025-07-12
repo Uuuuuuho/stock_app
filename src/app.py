@@ -33,9 +33,13 @@ def build_app():
 
     with tab1:
         if st.session_state.get('analyze', False):
-            # 데이터 분석
-            with st.spinner('📊 S&P500 종목 데이터 분석 중...'):
-                stock_data = get_stock_data(start_date, end_date, target_return, top_n)
+            # 데이터 분석 (only if not already cached)
+            if 'stock_data' not in st.session_state:
+                with st.spinner('📊 S&P500 종목 데이터 분석 중...'):
+                    stock_data = get_stock_data(start_date, end_date, target_return, top_n)
+                st.session_state.stock_data = stock_data
+            else:
+                stock_data = st.session_state.stock_data
 
             if not stock_data:
                 st.error("⚠️ 조건을 만족하는 종목이 없습니다. 목표 수익률를 낮춰보세요.")
@@ -50,10 +54,13 @@ def build_app():
             # AI 분석 (language 인자 추가)
             display_ai_analysis(stock_data, start_date, language)
 
-            # 분석 상태 초기화
+            # 분석 상태 초기화 (but keep stock_data cached)
             st.session_state.analyze = False
         else:
             st.info("👈 사이드바에서 조건을 설정하고 '분석 시작' 버튼을 클릭하세요.")
+            # Clear cached data when not analyzing
+            if 'stock_data' in st.session_state:
+                del st.session_state.stock_data
 
 
     with tab2:
