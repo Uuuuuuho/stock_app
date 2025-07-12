@@ -4,7 +4,7 @@ import time
 import random
 from config import NUM_REFERENCES
 
-def extract_content_from_url(url, max_chars=1000):
+def extract_content_from_url(url, max_chars=2000):
     """Extract meaningful content from a given URL"""
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}

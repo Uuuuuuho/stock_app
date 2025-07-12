@@ -14,7 +14,7 @@ from modules.ui_components import (
 def build_app():
     # 초기 설정
     default_start = pd.to_datetime("2025-01-01").date()
-    default_end = pd.to_datetime("2025-06-01").date()
+    default_end = pd.to_datetime("2025-07-01").date()
 
     # 페이지 구성
     st.set_page_config(

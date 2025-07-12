@@ -36,7 +36,6 @@ python3 -m vllm.entrypoints.openai.api_server \
   --model $model_name \
   --dtype auto \
   --gpu-memory-utilization 0.8 \
-  --port 8000
-  # --max-num-seqs 1 \
-  # --max-num-batched-tokens 512 \
-  # --max-model-len 2048
+  --port 8000 \
+  --max-model-len 8192 \
+  --max-num-seqs 4

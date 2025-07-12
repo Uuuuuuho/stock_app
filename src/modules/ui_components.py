@@ -33,6 +33,14 @@ def sidebar_ui(default_start, default_end):
     analyze = st.sidebar.button("🚀 분석 실행", type="primary")
     if analyze:
         st.session_state.analyze = True
+    # vLLM 서버 연결 상태 확인 버튼
+    if st.sidebar.button("🔧 vLLM 서버 상태 확인"):
+        from modules.llm_handler import check_vllm_server
+        status, message = check_vllm_server()
+        if status:
+            st.sidebar.success(f"✅ {message}")
+        else:
+            st.sidebar.error(f"❌ {message}")
     return start_date, end_date, target_return, top_n, language
 
 
@@ -58,38 +66,129 @@ def display_table_and_chart(stock_data, start_date, end_date):
         st.subheader("📊 종목별 수익률 & 리스크")
         st.dataframe(display_df, use_container_width=True)
     with col2:
-        st.subheader("📈 포트폴리오 누적 수익률")
+        st.subheader("📈 포트폴리오 주가 차트")
+        
+        # Chart period selection
         chart_period = st.selectbox("차트 주기 선택", ["일봉","주봉","월봉"], index=0)
+        
+        # Moving Average trend line options
+        st.write("**이동평균선 설정:**")
+        ma_cols = st.columns(4)
+        show_ma = {}
+        with ma_cols[0]:
+            show_ma[5] = st.checkbox("MA5", value=True, key="ma5")
+        with ma_cols[1]:
+            show_ma[20] = st.checkbox("MA20", value=True, key="ma20")
+        with ma_cols[2]:
+            show_ma[60] = st.checkbox("MA60", value=False, key="ma60")
+        with ma_cols[3]:
+            show_ma[120] = st.checkbox("MA120", value=False, key="ma120")
+        
+        # Stock selection checkboxes
+        st.write("**표시할 종목 선택:**")
+        selected_stocks = []
+        cols = st.columns(min(3, len(stock_data)))  # Create up to 3 columns
+        
+        for i, item in enumerate(stock_data):
+            with cols[i % 3]:
+                if st.checkbox(item['Ticker'], value=True, key=f"stock_select_{item['Ticker']}"):
+                    selected_stocks.append(item)
+        
+        if not selected_stocks:
+            st.warning("⚠️ 적어도 하나의 종목을 선택해주세요.")
+            return
+            
         with st.spinner('📈 포트폴리오 성과 계산 중...'):
             fig = go.Figure()
-            for item in stock_data:
+            for item in selected_stocks:
                 data = yf.Ticker(item['Ticker']).history(start=str(start_date), end=str(end_date))
+                
+                # Check if data is available
+                if data.empty:
+                    st.warning(f"⚠️ {item['Ticker']} 데이터를 가져올 수 없습니다.")
+                    continue
+                
+                # Resample data based on selected period
                 if chart_period == "주봉":
-                    data = data.resample('W').agg({'Open':'first','High':'max','Low':'min','Close':'last','Volume':'sum'}).dropna()
+                    # Use 'W-FRI' for weekly data ending on Friday
+                    data = data.resample('W-FRI').agg({
+                        'Open':'first',
+                        'High':'max',
+                        'Low':'min',
+                        'Close':'last',
+                        'Volume':'sum'
+                    }).dropna()
                 elif chart_period == "월봉":
-                    data = data.resample('M').agg({'Open':'first','High':'max','Low':'min','Close':'last','Volume':'sum'}).dropna()
-                cumulative = (data['Close'].pct_change().add(1).cumprod() - 1) * 100  # % 단위로 변환
-                fig.add_trace(go.Scatter(
-                    x=cumulative.index, 
-                    y=cumulative.values, 
-                    mode='lines', 
-                    name=item['Ticker'], 
-                    line=dict(width=2),
-                    hovertemplate='<b>%{fullData.name}</b><br>' +
-                                'Date: %{x}<br>' +
-                                'Return: %{y:.2f}%<br>' +
-                                '<extra></extra>'
+                    # Use 'M' for monthly data ending on last day of month
+                    data = data.resample('M').agg({
+                        'Open':'first',
+                        'High':'max',
+                        'Low':'min',
+                        'Close':'last',
+                        'Volume':'sum'
+                    }).dropna()
+                
+                # Check if resampled data is available
+                if data.empty:
+                    st.warning(f"⚠️ {item['Ticker']} {chart_period} 데이터가 충분하지 않습니다.")
+                    continue
+                
+                # Use Candlestick chart (OHLC bars)
+                fig.add_trace(go.Candlestick(
+                    x=data.index,
+                    open=data['Open'],
+                    high=data['High'],
+                    low=data['Low'],
+                    close=data['Close'],
+                    name=item['Ticker']
                 ))
+                
+                # Add Moving Average trend lines based on user selection
+                ma_periods = [5, 20, 60, 120]
+                ma_colors = ['orange', 'blue', 'green', 'red']
+                ma_styles = ['solid', 'solid', 'dash', 'dot']
+                ma_names = ['MA5 (단기)', 'MA20 (중기)', 'MA60 (장기)', 'MA120 (초장기)']
+                
+                for period, color, style, ma_name in zip(ma_periods, ma_colors, ma_styles, ma_names):
+                    if show_ma.get(period, False) and len(data) >= period:  # Only add MA if selected and enough data
+                        ma_values = data['Close'].rolling(window=period).mean()
+                        fig.add_trace(go.Scatter(
+                            x=data.index,
+                            y=ma_values,
+                            mode='lines',
+                            name=f'{item["Ticker"]} {ma_name}',
+                            line=dict(color=color, width=2, dash=style),
+                            opacity=0.9,
+                            hovertemplate=f'<b>{item["Ticker"]} {ma_name}</b><br>' +
+                                        'Date: %{x}<br>' +
+                                        f'{ma_name}: $%{{y:.2f}}<br>' +
+                                        '<extra></extra>'
+                        ))
             fig.update_layout(
-                title=f"{chart_period} 누적 수익률 추이", 
+                title=f"{chart_period} 주가 차트 ({len(selected_stocks)}개 종목)", 
                 xaxis_title="날짜", 
-                yaxis_title="누적 수익률 (%)", 
+                yaxis_title="주가 ($)", 
                 hovermode='x unified', 
-                height=600, 
+                height=700, 
                 showlegend=True, 
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                xaxis=dict(
+                    rangeslider=dict(visible=True),
+                    rangeselector=dict(
+                        buttons=list([
+                            dict(count=7, label="7D", step="day", stepmode="backward"),
+                            dict(count=30, label="1M", step="day", stepmode="backward"),
+                            dict(count=90, label="3M", step="day", stepmode="backward"),
+                            dict(count=180, label="6M", step="day", stepmode="backward"),
+                            dict(label="전체", step="all")
+                        ])
+                    )
+                ),
+                dragmode='zoom'  # Enable zoom functionality
             )
-            fig.update_xaxes(rangeslider_visible=True)
+            
+            # Add custom controls description
+            st.info("💡 **차트 조작법:** 드래그로 확대, 더블클릭으로 전체보기, 범위선택 버튼 활용")
             st.plotly_chart(fig, use_container_width=True)
 
 
@@ -375,7 +474,12 @@ def display_crawling_test_ui(start_date, language):
                 
                 # 2. LLM으로 요약
                 if content:
-                    summary, _ = run_llm("다음 내용을 한국어로 요약해줘.", content, "URL 요약", language)
+                    if language == "한국어":
+                        summary_prompt = f"다음 기사의 주요 내용을 상세히 한국어로 요약해주세요. 핵심 포인트, 수치, 중요한 정보를 모두 포함하여 충분히 설명해주세요:\n\n{content}"
+                    else:
+                        summary_prompt = f"Please provide a detailed summary of the following article in English. Include all key points, numbers, and important information with sufficient explanation:\n\n{content}"
+                    
+                    summary, _ = run_llm(summary_prompt, "", "URL 요약", language)
                     st.session_state.url_summary_results = {"success": True, "content": content, "summary": summary}
                 else:
                     st.session_state.url_summary_results = {"success": False, "error": "콘텐츠를 추출할 수 없습니다."}

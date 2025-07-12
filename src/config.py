@@ -5,7 +5,7 @@ MODEL_NAME = "google/gemma-2b-it"
 VLLM_API_URL = "http://localhost:8000/v1/chat/completions"
 
 # LLM parameters
-MAX_TOKENS = 250  # Increased for more detailed analysis
+MAX_TOKENS = 2500  # Optimized for 10GB VRAM with detailed analysis
 TEMPERATURE = 0.7
 
 # Supported UI languages (Korean and English only)
